@@ -1,151 +1,182 @@
-GROWTOPIA DISCORD PLAYER MONITOR
-Cloudflare Workers + D1 + Discord Webhook
-Dibuat untuk: Edgar
+<div align="center">
 
-============================================================
-ISI FOLDER
-============================================================
+# 🌱 Growtopia Discord Player Monitor
 
-1. worker.js
-   Kode utama Cloudflare Worker.
+Monitor jumlah pemain Growtopia secara otomatis melalui **Cloudflare Workers**, **D1 Database**, dan **Discord Webhook**.
 
-2. schema.sql
-   Perintah SQL untuk membuat tabel database D1.
+[![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
+[![Discord Webhook](https://img.shields.io/badge/Discord-Webhook-5865F2?logo=discord&logoColor=white)](https://discord.com/)
+[![JavaScript](https://img.shields.io/badge/JavaScript-ES%20Modules-F7DF1E?logo=javascript&logoColor=black)](https://developer.mozilla.org/docs/Web/JavaScript)
 
-3. Read Me.txt
-   Tutorial lengkap pemasangan.
+**Berjalan 24/7 tanpa komputer atau HP harus terus menyala.**
 
-============================================================
-FITUR
-============================================================
+</div>
 
-- Mengambil jumlah pemain Growtopia dari website resminya.
-- Mengirim status ke Discord menggunakan webhook.
+---
+
+## ✨ Fitur
+
+- Mengambil jumlah pemain Growtopia dari endpoint resmi.
+- Mengirim status server ke Discord menggunakan webhook.
 - Mengedit satu pesan yang sama agar channel tidak dipenuhi spam.
-- Menampilkan pemain online, perubahan pemain, tren, dan persentase.
-- Menggunakan custom emoji Discord server.
-- Berjalan otomatis setiap satu menit melalui Cloudflare Cron Trigger.
-- Komputer atau HP tidak perlu terus menyala.
+- Menampilkan jumlah pemain, perubahan, arah tren, dan persentase perubahan.
+- Mendukung custom emoji dari server Discord.
+- Berjalan otomatis setiap satu menit menggunakan Cloudflare Cron Trigger.
+- Menyimpan ID pesan dan data sebelumnya di Cloudflare D1.
+- Menyediakan endpoint `/run` untuk pengujian manual.
+- Menampilkan log Cron dan hasil pembaruan melalui Observability Cloudflare.
 
-============================================================
-LANGKAH 1 — MEMBUAT DISCORD WEBHOOK
-============================================================
+## 🧱 Cara Kerja
+
+```text
+Growtopia API
+     │
+     ▼
+Cloudflare Worker ──────► Discord Webhook
+     │                         │
+     ▼                         ▼
+Cloudflare D1          Satu embed diperbarui
+```
+
+Pada setiap eksekusi, Worker akan:
+
+1. Mengambil jumlah pemain terbaru.
+2. Membaca jumlah pemain sebelumnya dari D1.
+3. Menghitung selisih dan persentase perubahan.
+4. Mengedit embed Discord yang sudah ada.
+5. Menyimpan data terbaru ke D1.
+
+## 📁 Struktur Proyek
+
+```text
+growtopia-monitor-cloudflare/
+├── worker.js     # Kode utama Cloudflare Worker
+├── schema.sql    # Struktur tabel Cloudflare D1
+└── README.md     # Dokumentasi proyek
+```
+
+## 📋 Persyaratan
+
+Sebelum memulai, siapkan:
+
+- Akun Cloudflare.
+- Server Discord yang dapat kamu kelola.
+- Channel Discord untuk menampilkan monitor.
+- Discord Webhook URL.
+- Custom emoji Discord apabila ingin menggunakan tampilan bawaan proyek ini.
+
+---
+
+# 🚀 Instalasi
+
+## 1. Membuat Discord Webhook
 
 1. Buka server Discord.
-2. Buka channel tempat monitor akan dikirim.
-3. Klik Edit Channel.
-4. Pilih Integrations.
-5. Pilih Webhooks.
-6. Klik New Webhook.
-7. Atur nama dan channel.
-8. Klik Copy Webhook URL.
-9. Simpan URL tersebut secara rahasia.
+2. Pilih channel tempat monitor akan dikirim.
+3. Buka **Edit Channel**.
+4. Pilih **Integrations** → **Webhooks**.
+5. Klik **New Webhook**.
+6. Atur nama dan channel webhook.
+7. Klik **Copy Webhook URL**.
 
-PENTING:
-Jangan pernah membagikan URL webhook kepada orang lain.
-Orang yang memiliki URL tersebut dapat mengirim pesan ke channel kamu.
+> [!CAUTION]
+> Jangan membagikan URL webhook atau memasukkannya langsung ke repository GitHub. Siapa pun yang memiliki URL tersebut dapat mengirim pesan ke channel kamu.
 
-============================================================
-LANGKAH 2 — MEMBUAT CLOUDFLARE WORKER
-============================================================
+## 2. Membuat Cloudflare Worker
 
-1. Masuk ke dashboard Cloudflare.
-2. Buka Workers & Pages.
-3. Klik Create.
-4. Pilih Worker atau Start with Hello World.
-5. Beri nama, contoh:
+1. Masuk ke Cloudflare Dashboard.
+2. Buka **Workers & Pages**.
+3. Klik **Create**.
+4. Pilih **Worker** atau **Start with Hello World**.
+5. Gunakan nama, misalnya:
 
-   growtopia-monitoring
+```text
+growtopia-monitoring
+```
 
-6. Klik Deploy.
-7. Buka Worker tersebut.
-8. Klik Edit Code.
+6. Klik **Deploy**.
+7. Buka Worker yang baru dibuat.
+8. Klik **Edit Code**.
 9. Hapus seluruh kode bawaan.
-10. Buka file worker.js dari folder ini.
-11. Salin seluruh isi worker.js ke editor Cloudflare.
-12. Klik Deploy.
+10. Salin seluruh isi [`worker.js`](./worker.js) ke editor.
+11. Klik **Deploy**.
 
-Saat membuka alamat Worker tanpa /run, halaman seharusnya menampilkan:
+Saat alamat Worker dibuka tanpa `/run`, responsnya akan seperti:
 
+```text
 Growtopia Monitor Edgar V5 aktif. Buka /run untuk tes manual.
+```
 
-============================================================
-LANGKAH 3 — MEMBUAT DATABASE D1
-============================================================
+## 3. Membuat Database D1
 
-1. Di dashboard Cloudflare, buka Storage & Databases.
-2. Pilih D1 SQL Database.
-3. Klik Create Database.
-4. Beri nama, contoh:
+1. Di Cloudflare Dashboard, buka **Storage & Databases**.
+2. Pilih **D1 SQL Database**.
+3. Klik **Create Database**.
+4. Gunakan nama, misalnya:
 
-   growtopia-monitor-db
+```text
+growtopia-monitor-db
+```
 
 5. Buka database yang baru dibuat.
-6. Buka tab Console.
-7. Buka file schema.sql dari folder ini.
-8. Salin isi schema.sql ke Console.
-9. Klik Execute.
+6. Masuk ke tab **Console**.
+7. Jalankan isi [`schema.sql`](./schema.sql):
 
-Perintah yang dijalankan:
-
+```sql
 CREATE TABLE IF NOT EXISTS monitor_state (
   id INTEGER PRIMARY KEY,
   message_id TEXT,
   previous_count INTEGER,
   last_updated TEXT
 );
+```
 
-============================================================
-LANGKAH 4 — MENGHUBUNGKAN D1 KE WORKER
-============================================================
+## 4. Menghubungkan D1 ke Worker
 
-1. Kembali ke Worker growtopia-monitoring.
-2. Buka Settings.
-3. Cari Bindings.
-4. Klik Add Binding.
-5. Pilih D1 Database.
-6. Variable name harus persis:
+1. Buka Worker `growtopia-monitoring`.
+2. Masuk ke **Settings**.
+3. Cari bagian **Bindings**.
+4. Klik **Add Binding**.
+5. Pilih **D1 Database**.
+6. Isi nama variabel berikut secara persis:
 
-   DB
+```text
+DB
+```
 
-7. Pilih database:
+7. Pilih database `growtopia-monitor-db`.
+8. Simpan atau deploy perubahan.
 
-   growtopia-monitor-db
+> [!IMPORTANT]
+> Nama binding harus `DB` karena kode membaca database melalui `env.DB`.
 
-8. Simpan atau Deploy perubahan.
+## 5. Menambahkan Discord Webhook sebagai Secret
 
-Nama DB harus sama persis karena worker.js membaca database melalui env.DB.
+1. Buka Worker.
+2. Masuk ke **Settings**.
+3. Cari **Variables and Secrets**.
+4. Klik **Add**.
+5. Pilih tipe **Secret**.
+6. Gunakan nama variabel:
 
-============================================================
-LANGKAH 5 — MENAMBAHKAN DISCORD WEBHOOK SEBAGAI SECRET
-============================================================
+```text
+DISCORD_WEBHOOK_URL
+```
 
-1. Buka Worker growtopia-monitoring.
-2. Buka Settings.
-3. Cari Variables and Secrets.
-4. Klik Add.
-5. Pilih Secret.
-6. Variable name harus persis:
+7. Isi value dengan Discord Webhook URL.
+8. Simpan dan deploy perubahan.
 
-   DISCORD_WEBHOOK_URL
+## 6. Menjalankan Tes Manual
 
-7. Isi Value dengan URL webhook Discord.
-8. Simpan dan Deploy.
+Tambahkan `/run` pada alamat Worker:
 
-Jangan menaruh URL webhook langsung di worker.js.
-
-============================================================
-LANGKAH 6 — TES MANUAL
-============================================================
-
-Buka alamat Worker dan tambahkan /run.
-
-Contoh:
-
+```text
 https://NAMA-WORKER.NAMA-AKUN.workers.dev/run
+```
 
-Jika berhasil, browser akan menampilkan JSON seperti:
+Contoh respons berhasil:
 
+```json
 {
   "ok": true,
   "online": true,
@@ -153,194 +184,180 @@ Jika berhasil, browser akan menampilkan JSON seperti:
   "previousPlayers": 49800,
   "change": 200,
   "percentageChange": 0.4016,
-  "updatedAt": "..."
+  "updatedAt": "2026-01-01T00:00:00.000Z"
 }
+```
 
-Pesan embed juga akan muncul di Discord.
+Embed akan muncul di Discord. Jalankan `/run` sekali lagi untuk memastikan pesan lama diedit, bukan membuat pesan baru.
 
-Buka /run sekali lagi untuk memastikan pesan lama diedit dan bukan membuat
-pesan baru setiap kali.
+## 7. Mengaktifkan Cron Trigger
 
-============================================================
-LANGKAH 7 — MEMBUAT CRON TRIGGER SETIAP SATU MENIT
-============================================================
+1. Buka Worker.
+2. Masuk ke **Settings** → **Triggers**.
+3. Cari bagian **Cron Triggers**.
+4. Klik **Add Cron Trigger**.
+5. Masukkan:
 
-1. Buka Worker growtopia-monitoring.
-2. Buka Settings.
-3. Buka Triggers.
-4. Cari Cron Triggers.
-5. Klik Add Cron Trigger.
-6. Masukkan:
+```cron
+* * * * *
+```
 
-   * * * * *
+6. Simpan.
 
-7. Simpan.
+Jadwal tersebut menjalankan Worker setiap satu menit. Cron baru mungkin membutuhkan beberapa menit sebelum mulai aktif.
 
-Arti * * * * * adalah menjalankan Worker setiap satu menit.
+> [!NOTE]
+> Jangan menghapus dan membuat ulang Cron berulang-ulang ketika belum langsung aktif karena proses aktivasi akan dimulai kembali.
 
-Setelah dibuat, Cron mungkin membutuhkan beberapa menit sebelum mulai aktif.
-Jangan terus-menerus menghapus dan membuat ulang Cron karena waktu aktivasi
-akan dimulai kembali.
+## 8. Memeriksa Log Cron
 
-============================================================
-LANGKAH 8 — MELIHAT LOG CRON
-============================================================
+1. Buka Worker.
+2. Masuk ke **Observability** atau **Logs**.
+3. Buka **Live Logs**.
+4. Tunggu eksekusi berikutnya.
 
-1. Buka Worker growtopia-monitoring.
-2. Buka Observability atau Logs.
-3. Buka Live Logs.
-4. Tunggu sekitar satu menit.
+Log yang berhasil akan menampilkan pesan seperti:
 
-Jika Cron berjalan, log akan menampilkan:
-
+```text
 CRON FIRED: * * * * *
 MONITOR UPDATED: ...
+```
 
-Jika tidak muncul, periksa kembali apakah Cron Trigger dipasang pada Worker
-yang benar.
+---
 
-============================================================
-CUSTOM EMOJI YANG DIGUNAKAN
-============================================================
+# 🎨 Custom Emoji
 
-Offline:
-<:Offline:1529422157187387472>
+Emoji bawaan yang digunakan di [`worker.js`](./worker.js):
 
-Online:
-<:Online:1529422176212750366>
+| Nama | Kode |
+|---|---|
+| Offline | `<:Offline:1529422157187387472>` |
+| Online | `<:Online:1529422176212750366>` |
+| Player | `<:Player:1529422279522517093>` |
+| Stats | `<:Stats:1529422196060192861>` |
+| Wall Clock | `<:WallClock:1529422130167676949>` |
+| Plus | `<:Pluss:1529434551162769418>` |
+| Minus | `<:Minuss:1529434532644786234>` |
 
-Player:
-<:Player:1529422279522517093>
+Custom emoji harus tersedia di server tempat webhook berada. Untuk menggantinya, edit bagian berikut di `worker.js`:
 
-Stats:
-<:Stats:1529422196060192861>
+```javascript
+const EMOJI = {
+  offline: "<:Offline:ID_EMOJI>",
+  online: "<:Online:ID_EMOJI>",
+  player: "<:Player:ID_EMOJI>",
+  stats: "<:Stats:ID_EMOJI>",
+  clock: "<:WallClock:ID_EMOJI>",
+  plus: "<:Pluss:ID_EMOJI>",
+  minus: "<:Minuss:ID_EMOJI>",
+};
+```
 
-Clock:
-<:WallClock:1529422130167676949>
+Jangan gunakan karakter backslash sebelum kode emoji di JavaScript.
 
-Plus:
-<:Pluss:1529434551162769418>
+```text
+Benar:  <:Online:1529422176212750366>
+Salah:  \<:Online:1529422176212750366>
+```
 
-Minus:
-<:Minuss:1529434532644786234>
+# ⚙️ Kustomisasi
 
-Jangan menggunakan karakter backslash sebelum kode emoji di worker.js.
+## Mengganti Nama Footer
 
-Benar:
-<:Online:1529422176212750366>
+Cari teks berikut di `worker.js`:
 
-Salah:
-\<:Online:1529422176212750366>
-
-============================================================
-CARA MENGGANTI NAMA EDGAR
-============================================================
-
-Cari teks ini di worker.js:
-
+```text
 Edgar • Growtopia Monitoring System • V5
+```
 
-Lalu ganti Edgar dengan nama yang diinginkan.
+Ganti `Edgar` dengan nama yang kamu inginkan.
 
-============================================================
-CARA MENGUBAH JADWAL
-============================================================
+## Mengubah Jadwal
 
-Setiap 1 menit:
-* * * * *
+| Interval | Cron Expression |
+|---|---|
+| Setiap 1 menit | `* * * * *` |
+| Setiap 5 menit | `*/5 * * * *` |
+| Setiap 10 menit | `*/10 * * * *` |
+| Setiap 30 menit | `*/30 * * * *` |
+| Setiap jam | `0 * * * *` |
 
-Setiap 5 menit:
-*/5 * * * *
+Apabila jadwal diubah, sesuaikan juga teks **Refresh Rate** di `worker.js` agar informasi pada embed tetap benar.
 
-Setiap 10 menit:
-*/10 * * * *
+## Rumus Persentase
 
-Setiap 30 menit:
-*/30 * * * *
-
-Setiap jam:
-0 * * * *
-
-Jika jadwal Cron diubah, sesuaikan juga teks Refresh Rate di worker.js agar
-tampilan Discord tidak menampilkan informasi yang salah.
-
-============================================================
-MASALAH UMUM DAN SOLUSI
-============================================================
-
-1. ERROR: D1 binding "DB" belum dipasang.
-
-   Solusi:
-   Tambahkan D1 binding dengan nama DB dan pilih database yang benar.
-
-2. ERROR: Secret "DISCORD_WEBHOOK_URL" belum dipasang.
-
-   Solusi:
-   Tambahkan Secret dengan nama DISCORD_WEBHOOK_URL.
-
-3. ERROR: no such table: monitor_state.
-
-   Solusi:
-   Jalankan isi schema.sql di D1 Console.
-
-4. Tampilan Discord masih desain lama.
-
-   Solusi:
-   - Pastikan kode baru sudah di-Deploy.
-   - Pastikan kamu mengedit Worker yang benar.
-   - Cari Worker lama yang mungkin memakai webhook yang sama.
-   - Matikan Cron Trigger pada Worker lama.
-
-5. Cron tidak berjalan.
-
-   Solusi:
-   - Pastikan ada satu Cron Trigger * * * * *.
-   - Tunggu beberapa menit setelah membuat Cron.
-   - Periksa Observability atau Live Logs.
-   - Pastikan kode memiliki fungsi async scheduled(...).
-   - Pastikan binding DB dan secret tersedia pada Worker produksi.
-
-6. Emoji muncul sebagai teks biasa.
-
-   Solusi:
-   - Pastikan webhook berada di server yang memiliki emoji tersebut.
-   - Pastikan ID emoji benar.
-   - Jangan menambahkan backslash sebelum emoji di worker.js.
-
-7. Pesan Discord baru terus dibuat setiap menit.
-
-   Solusi:
-   - Pastikan database D1 terhubung.
-   - Pastikan tabel monitor_state sudah dibuat.
-   - Jangan menghapus pesan monitor dari Discord.
-   - Jika pesan dihapus, Worker otomatis membuat satu pesan baru.
-
-8. Persentase terlihat sangat kecil.
-
-   Itu normal karena persentase dihitung dengan rumus:
-
-   perubahan pemain / jumlah pemain sebelumnya × 100
+```text
+persentase = perubahan pemain / jumlah pemain sebelumnya × 100
+```
 
 Contoh:
-Pemain sebelumnya = 50.000
-Pemain sekarang = 50.250
-Perubahan = 250
-Persentase = 250 / 50.000 × 100 = 0,50%
 
-============================================================
-CATATAN KEAMANAN
-============================================================
+```text
+Pemain sebelumnya : 50.000
+Pemain sekarang   : 50.250
+Perubahan          : +250
+Persentase         : 250 / 50.000 × 100 = 0,50%
+```
 
-- Jangan membagikan URL Discord webhook.
-- Jangan menaruh webhook di kode publik atau GitHub.
+---
+
+# 🛠️ Troubleshooting
+
+### `D1 binding "DB" belum dipasang`
+
+Tambahkan D1 binding dengan variable name `DB`, lalu pilih database yang benar.
+
+### `Secret "DISCORD_WEBHOOK_URL" belum dipasang`
+
+Tambahkan Cloudflare Secret dengan nama `DISCORD_WEBHOOK_URL`.
+
+### `no such table: monitor_state`
+
+Jalankan isi `schema.sql` di D1 Console.
+
+### Tampilan Discord masih menggunakan desain lama
+
+- Pastikan kode terbaru sudah di-deploy.
+- Pastikan kamu mengedit Worker yang benar.
+- Periksa Worker lama yang mungkin menggunakan webhook yang sama.
+- Matikan Cron Trigger pada Worker lama.
+
+### Cron tidak berjalan
+
+- Pastikan hanya ada satu Cron Trigger yang benar.
+- Tunggu beberapa menit setelah membuat Cron.
+- Periksa **Observability** atau **Live Logs**.
+- Pastikan kode memiliki handler `async scheduled(...)`.
+- Pastikan binding dan secret tersedia pada deployment produksi.
+
+### Emoji muncul sebagai teks biasa
+
+- Pastikan webhook berada di server yang memiliki emoji tersebut.
+- Pastikan nama dan ID emoji benar.
+- Jangan menambahkan backslash pada kode emoji di `worker.js`.
+
+### Pesan baru dibuat setiap menit
+
+- Pastikan D1 sudah terhubung.
+- Pastikan tabel `monitor_state` sudah dibuat.
+- Jangan menghapus pesan monitor dari Discord.
+- Jika pesan dihapus, Worker akan membuat satu pesan baru dan menyimpan ID barunya.
+
+# 🔐 Keamanan
+
+- Jangan commit Discord Webhook URL ke GitHub.
+- Simpan webhook melalui Cloudflare Secret.
+- Jangan membagikan tangkapan layar yang memperlihatkan URL webhook.
 - Jika webhook bocor, hapus webhook lama dan buat webhook baru.
-- Simpan webhook menggunakan Cloudflare Secret.
 
-============================================================
-SELESAI
-============================================================
+# 📄 Lisensi
 
-Setelah semua langkah selesai, Cloudflare akan mengambil jumlah pemain
-Growtopia setiap satu menit, membandingkannya dengan data sebelumnya,
-menghitung persentase kenaikan atau penurunan, lalu memperbarui satu pesan
-Discord yang sama secara otomatis.
+Proyek ini dapat digunakan dan dimodifikasi untuk kebutuhan pribadi. Tambahkan file lisensi terpisah apabila repository akan didistribusikan secara publik dengan ketentuan tertentu.
+
+---
+
+<div align="center">
+
+Dibuat untuk **Edgar** menggunakan Cloudflare Workers, D1, dan Discord Webhook.
+
+</div>
