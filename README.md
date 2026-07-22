@@ -358,6 +358,6 @@ Proyek ini dapat digunakan dan dimodifikasi untuk kebutuhan pribadi. Tambahkan f
 
 <div align="center">
 
-Dibuat untuk **Edgar** menggunakan Cloudflare Workers, D1, dan Discord Webhook.
+Dibuat oleh **Edgar** menggunakan Cloudflare Workers, D1, dan Discord Webhook.
 
 </div>
