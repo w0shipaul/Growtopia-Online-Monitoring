@@ -15,7 +15,6 @@ const EMOJI = {
 };
 
 export default {
-  // Tes manual melalui alamat Worker + /run
   async fetch(request, env) {
     const url = new URL(request.url);
 
@@ -23,13 +22,20 @@ export default {
       try {
         const result = await updateMonitor(env);
 
-        return jsonResponse(result, 200);
+        return jsonResponse(
+          result,
+          result.ok ? 200 : 207
+        );
       } catch (error) {
-        console.error("Manual run failed:", error);
+        console.error(
+          "Manual run failed:",
+          error
+        );
 
         return jsonResponse(
           {
             ok: false,
+
             error:
               error instanceof Error
                 ? error.message
@@ -41,35 +47,46 @@ export default {
     }
 
     return new Response(
-      "Growtopia Monitor Edgar V6 aktif. Buka /run untuk tes manual.",
+      "Growtopia Online Monitoring aktif. Buka /run untuk tes manual.",
       {
         headers: {
-          "Content-Type": "text/plain; charset=UTF-8",
-          "Cache-Control": "no-store",
+          "Content-Type":
+            "text/plain; charset=UTF-8",
+
+          "Cache-Control":
+            "no-store",
         },
       }
     );
   },
 
-  // Dipanggil otomatis oleh Cron Trigger Cloudflare
-  async scheduled(controller, env, ctx) {
+  async scheduled(
+    controller,
+    env,
+    ctx
+  ) {
     console.log(
       "CRON FIRED:",
       controller.cron,
-      new Date(controller.scheduledTime).toISOString()
+      new Date(
+        controller.scheduledTime
+      ).toISOString()
     );
 
     ctx.waitUntil(
-      updateMonitor(env).catch((error) => {
-        console.error(
-          "Scheduled run failed:",
-          error instanceof Error
-            ? error.message
-            : String(error)
-        );
+      updateMonitor(env).catch(
+        (error) => {
+          console.error(
+            "Scheduled run failed:",
 
-        throw error;
-      })
+            error instanceof Error
+              ? error.message
+              : String(error)
+          );
+
+          throw error;
+        }
+      )
     );
   },
 };
@@ -81,113 +98,408 @@ async function updateMonitor(env) {
     );
   }
 
-  if (!env.DISCORD_WEBHOOK_URL) {
-    throw new Error(
-      'Secret "DISCORD_WEBHOOK_URL" belum dipasang.'
+  const webhooks =
+    getWebhookConfigs(env);
+
+  await ensureDatabase(env.DB);
+
+  /*
+   * Jumlah pemain dan World of the Day
+   * diambil sekaligus dari endpoint /detail.
+   */
+  const growtopia =
+    await getGrowtopiaDetails();
+
+  const settledResults =
+    await Promise.allSettled(
+      webhooks.map((webhook) =>
+        updateWebhook(
+          env.DB,
+          webhook,
+          growtopia
+        )
+      )
+    );
+
+  const results =
+    settledResults.map(
+      (result, index) => {
+        const webhook =
+          webhooks[index];
+
+        if (
+          result.status ===
+          "fulfilled"
+        ) {
+          return result.value;
+        }
+
+        return {
+          ok: false,
+
+          webhookId:
+            webhook.id,
+
+          webhookName:
+            webhook.name,
+
+          error:
+            result.reason instanceof
+            Error
+              ? result.reason.message
+              : String(
+                  result.reason
+                ),
+        };
+      }
+    );
+
+  const successful =
+    results.filter(
+      (result) => result.ok
+    ).length;
+
+  const failed =
+    results.length - successful;
+
+  const output = {
+    ok: failed === 0,
+
+    online:
+      growtopia.online,
+
+    players:
+      growtopia.count,
+
+    worldOfTheDay:
+      growtopia.wotdName,
+
+    worldOfTheDayImage:
+      growtopia.wotdImageUrl,
+
+    totalWebhooks:
+      webhooks.length,
+
+    successful,
+    failed,
+    results,
+
+    updatedAt:
+      new Date().toISOString(),
+  };
+
+  console.log(
+    "MONITOR UPDATED:",
+    JSON.stringify(output)
+  );
+
+  return output;
+}
+
+function getWebhookConfigs(env) {
+  /*
+   * Mode banyak webhook.
+   *
+   * Secret:
+   * DISCORD_WEBHOOKS_JSON
+   */
+  if (
+    env.DISCORD_WEBHOOKS_JSON
+  ) {
+    let parsed;
+
+    try {
+      parsed = JSON.parse(
+        env.DISCORD_WEBHOOKS_JSON
+      );
+    } catch (error) {
+      throw new Error(
+        `DISCORD_WEBHOOKS_JSON bukan JSON valid: ${
+          error instanceof Error
+            ? error.message
+            : String(error)
+        }`
+      );
+    }
+
+    if (
+      !Array.isArray(parsed) ||
+      parsed.length === 0
+    ) {
+      throw new Error(
+        "DISCORD_WEBHOOKS_JSON harus berupa array dan minimal berisi satu webhook."
+      );
+    }
+
+    const usedIds =
+      new Set();
+
+    return parsed.map(
+      (item, index) => {
+        const id = String(
+          item?.id ?? ""
+        ).trim();
+
+        const name = String(
+          item?.name ?? id ?? ""
+        ).trim();
+
+        const url = String(
+          item?.url ?? ""
+        ).trim();
+
+        if (!id) {
+          throw new Error(
+            `Webhook urutan ${
+              index + 1
+            } tidak memiliki id.`
+          );
+        }
+
+        if (
+          usedIds.has(id)
+        ) {
+          throw new Error(
+            `Webhook id duplikat: ${id}`
+          );
+        }
+
+        if (
+          !isDiscordWebhookUrl(
+            url
+          )
+        ) {
+          throw new Error(
+            `URL webhook tidak valid pada id: ${id}`
+          );
+        }
+
+        usedIds.add(id);
+
+        return {
+          id,
+
+          name:
+            name || id,
+
+          url:
+            normalizeWebhookUrl(
+              url
+            ),
+        };
+      }
     );
   }
 
-  const state = await env.DB.prepare(
-    `SELECT message_id, previous_count, last_updated
-     FROM monitor_state
-     WHERE id = 1`
-  ).first();
-
-  const status = await getGrowtopiaStatus();
-
-  const previousCount =
-    state?.previous_count === null ||
-    state?.previous_count === undefined
-      ? null
-      : Number(state.previous_count);
-
-  const payload = createDiscordPayload(
-    status,
-    previousCount
-  );
-
-  const webhookBase = String(
+  /*
+   * Fallback untuk satu webhook.
+   *
+   * Secret:
+   * DISCORD_WEBHOOK_URL
+   */
+  if (
     env.DISCORD_WEBHOOK_URL
-  )
+  ) {
+    const url = String(
+      env.DISCORD_WEBHOOK_URL
+    ).trim();
+
+    if (
+      !isDiscordWebhookUrl(
+        url
+      )
+    ) {
+      throw new Error(
+        "DISCORD_WEBHOOK_URL tidak valid."
+      );
+    }
+
+    return [
+      {
+        id: "default",
+
+        name:
+          "Default Server",
+
+        url:
+          normalizeWebhookUrl(
+            url
+          ),
+      },
+    ];
+  }
+
+  throw new Error(
+    'Secret "DISCORD_WEBHOOKS_JSON" belum dipasang.'
+  );
+}
+
+function normalizeWebhookUrl(
+  url
+) {
+  return url
     .split("?")[0]
     .replace(/\/+$/, "");
+}
 
-  let messageId = state?.message_id ?? null;
+function isDiscordWebhookUrl(
+  url
+) {
+  return /^https:\/\/(?:canary\.|ptb\.)?(?:discord(?:app)?\.com)\/api(?:\/v\d+)?\/webhooks\/\d+\/[A-Za-z0-9._-]+/i.test(
+    url
+  );
+}
 
-  // Edit satu pesan lama agar channel tidak penuh spam.
-  if (messageId) {
-    const edited = await editWebhookMessage(
-      webhookBase,
-      messageId,
-      payload
+async function ensureDatabase(
+  db
+) {
+  /*
+   * Tabel akan dibuat otomatis
+   * kalau belum tersedia.
+   */
+  await db
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS webhook_state (
+        webhook_id TEXT PRIMARY KEY,
+        message_id TEXT,
+        previous_count INTEGER,
+        last_updated TEXT
+      )`
+    )
+    .run();
+}
+
+async function updateWebhook(
+  db,
+  webhook,
+  growtopia
+) {
+  const state = await db
+    .prepare(
+      `SELECT
+         message_id,
+         previous_count,
+         last_updated
+       FROM webhook_state
+       WHERE webhook_id = ?1`
+    )
+    .bind(webhook.id)
+    .first();
+
+  const previousCount =
+    state?.previous_count ===
+      null ||
+    state?.previous_count ===
+      undefined
+      ? null
+      : Number(
+          state.previous_count
+        );
+
+  const payload =
+    createDiscordPayload(
+      growtopia,
+      previousCount
     );
 
-    // Jika pesan lama sudah dihapus, kirim pesan baru.
-    if (!edited) {
-      const message = await sendWebhookMessage(
-        webhookBase,
+  let messageId =
+    state?.message_id ?? null;
+
+  /*
+   * Edit pesan lama agar tidak
+   * mengirim pesan baru setiap menit.
+   */
+  if (messageId) {
+    const edited =
+      await editWebhookMessage(
+        webhook.url,
+        messageId,
         payload
       );
 
-      messageId = message.id;
+    /*
+     * Jika pesan telah dihapus,
+     * buat satu pesan baru.
+     */
+    if (!edited) {
+      const message =
+        await sendWebhookMessage(
+          webhook.url,
+          payload
+        );
+
+      messageId =
+        message.id;
     }
   } else {
-    const message = await sendWebhookMessage(
-      webhookBase,
-      payload
-    );
+    const message =
+      await sendWebhookMessage(
+        webhook.url,
+        payload
+      );
 
-    messageId = message.id;
+    messageId =
+      message.id;
   }
 
-  const now = new Date().toISOString();
+  const now =
+    new Date().toISOString();
 
-  await env.DB.prepare(
-    `INSERT INTO monitor_state
-       (id, message_id, previous_count, last_updated)
-     VALUES
-       (1, ?1, ?2, ?3)
-     ON CONFLICT(id) DO UPDATE SET
-       message_id = excluded.message_id,
-       previous_count = excluded.previous_count,
-       last_updated = excluded.last_updated`
-  )
-    .bind(messageId, status.count, now)
+  await db
+    .prepare(
+      `INSERT INTO webhook_state
+         (
+           webhook_id,
+           message_id,
+           previous_count,
+           last_updated
+         )
+       VALUES
+         (?1, ?2, ?3, ?4)
+       ON CONFLICT(webhook_id)
+       DO UPDATE SET
+         message_id =
+           excluded.message_id,
+         previous_count =
+           excluded.previous_count,
+         last_updated =
+           excluded.last_updated`
+    )
+    .bind(
+      webhook.id,
+      messageId,
+      growtopia.count,
+      now
+    )
     .run();
 
   const change =
     previousCount === null
       ? null
-      : status.count - previousCount;
+      : growtopia.count -
+        previousCount;
 
-  const percentageChange =
-    change === null ||
-    previousCount === null ||
-    previousCount <= 0
-      ? null
-      : (change / previousCount) * 100;
-
-  const result = {
+  return {
     ok: true,
-    source: DETAIL_URL,
-    online: status.online,
-    players: status.count,
-    previousPlayers: previousCount,
-    change,
-    percentageChange,
+
+    webhookId:
+      webhook.id,
+
+    webhookName:
+      webhook.name,
+
     messageId,
+
+    previousPlayers:
+      previousCount,
+
+    change,
+
     updatedAt: now,
   };
-
-  console.log(
-    "MONITOR UPDATED:",
-    JSON.stringify(result)
-  );
-
-  return result;
 }
 
-async function getGrowtopiaStatus() {
+async function getGrowtopiaDetails() {
   const response = await fetch(
     `${DETAIL_URL}?t=${Date.now()}`,
     {
@@ -198,7 +510,7 @@ async function getGrowtopiaStatus() {
           "application/json, text/plain, */*",
 
         "User-Agent":
-          "Growtopia-Monitor-Cloudflare/6.0",
+          "Growtopia-Online-Monitoring",
       },
 
       cf: {
@@ -214,12 +526,14 @@ async function getGrowtopiaStatus() {
     );
   }
 
-  const rawText = await response.text();
+  const rawText =
+    await response.text();
 
   let data;
 
   try {
-    data = JSON.parse(rawText);
+    data =
+      JSON.parse(rawText);
   } catch {
     throw new Error(
       `Respons Growtopia bukan JSON valid: ${rawText.slice(
@@ -229,7 +543,13 @@ async function getGrowtopiaStatus() {
     );
   }
 
-  const rawCount = data?.online_user;
+  /*
+   * Jumlah pemain:
+   *
+   * data.online_user
+   */
+  const rawCount =
+    data?.online_user;
 
   if (
     rawCount === undefined ||
@@ -244,11 +564,16 @@ async function getGrowtopiaStatus() {
   }
 
   const count = Number(
-    String(rawCount).replace(/[^\d]/g, "")
+    String(rawCount).replace(
+      /[^\d]/g,
+      ""
+    )
   );
 
   if (
-    !Number.isSafeInteger(count) ||
+    !Number.isSafeInteger(
+      count
+    ) ||
     count < 0
   ) {
     throw new Error(
@@ -258,33 +583,109 @@ async function getGrowtopiaStatus() {
     );
   }
 
+  /*
+   * World of the Day:
+   *
+   * data.world_day_images.full_size
+   *
+   * Contoh:
+   * worlds/heatwaves.png
+   */
+  const wotdPath =
+    data
+      ?.world_day_images
+      ?.full_size ||
+    data
+      ?.world_day_images
+      ?.resize ||
+    null;
+
+  /*
+   * Mengubah path relatif menjadi
+   * URL gambar lengkap.
+   */
+  const wotdImageUrl =
+    wotdPath
+      ? new URL(
+          String(
+            wotdPath
+          ).replace(
+            /^\/+/,
+            ""
+          ),
+          WEBSITE_URL
+        ).href
+      : null;
+
   return {
-    online: count > 0,
+    online:
+      count > 0,
+
     count,
+
+    wotdImageUrl,
+
+    wotdName:
+      getWorldNameFromImagePath(
+        wotdPath
+      ),
   };
 }
 
+function getWorldNameFromImagePath(
+  path
+) {
+  if (!path) {
+    return "Unknown";
+  }
+
+  const filename =
+    String(path)
+      .split("/")
+      .pop()
+      .replace(
+        /\.[^.]+$/,
+        ""
+      );
+
+  return decodeURIComponent(
+    filename
+  )
+    .replace(
+      /[-_]+/g,
+      " "
+    )
+    .trim()
+    .toUpperCase();
+}
+
 function createDiscordPayload(
-  status,
+  growtopia,
   previousCount
 ) {
-  const currentCount = status.count;
+  const currentCount =
+    growtopia.count;
 
   const change =
     previousCount === null
       ? null
-      : currentCount - previousCount;
+      : currentCount -
+        previousCount;
 
   const percentageChange =
     change === null ||
     previousCount === null ||
     previousCount <= 0
       ? null
-      : (change / previousCount) * 100;
+      : (
+          change /
+          previousCount
+        ) * 100;
 
-  const unixTime = Math.floor(
-    Date.now() / 1000
-  );
+  const unixTime =
+    Math.floor(
+      Date.now() / 1000
+    );
 
   let changeValue;
   let trendValue;
@@ -315,7 +716,9 @@ function createDiscordPayload(
     trendValue =
       `${EMOJI.minus} Menurun ` +
       `**-${formatPercentage(
-        Math.abs(percentageChange)
+        Math.abs(
+          percentageChange
+        )
       )}%**`;
   } else {
     changeValue =
@@ -325,18 +728,121 @@ function createDiscordPayload(
       `${EMOJI.stats} Stabil **0,00%**`;
   }
 
-  const statusEmoji = status.online
-    ? EMOJI.online
-    : EMOJI.offline;
+  const statusEmoji =
+    growtopia.online
+      ? EMOJI.online
+      : EMOJI.offline;
 
-  const statusText = status.online
-    ? "SERVER ONLINE"
-    : "SERVER OFFLINE";
+  const statusText =
+    growtopia.online
+      ? "SERVER ONLINE"
+      : "SERVER OFFLINE";
+
+  const fields = [
+    {
+      name:
+        `${EMOJI.player} Online Players`,
+
+      value:
+        growtopia.online
+          ? `\`\`\`${formatNumber(
+              currentCount
+            )}\`\`\``
+          : "```OFFLINE```",
+
+      inline: true,
+    },
+
+    {
+      name:
+        `${EMOJI.stats} Previous Check`,
+
+      value:
+        previousCount === null
+          ? "```NO DATA```"
+          : `\`\`\`${formatNumber(
+              previousCount
+            )}\`\`\``,
+
+      inline: true,
+    },
+
+    {
+      name:
+        `${EMOJI.stats} Player Change`,
+
+      value:
+        changeValue,
+
+      inline: true,
+    },
+
+    {
+      name:
+        `${EMOJI.stats} Player Trend`,
+
+      value:
+        trendValue,
+
+      inline: true,
+    },
+
+    {
+      name:
+        "🌍 World of the Day",
+
+      value:
+        growtopia.wotdImageUrl
+          ? [
+              `**${growtopia.wotdName}**`,
+              `[View Full Image](${growtopia.wotdImageUrl})`,
+            ].join("\n")
+          : "Data tidak tersedia",
+
+      inline: true,
+    },
+
+    {
+      name:
+        `${EMOJI.clock} Refresh Rate`,
+
+      value:
+        "**Every 1 Minute**",
+
+      inline: true,
+    },
+
+    {
+      name:
+        `${EMOJI.clock} Last Updated`,
+
+      value:
+        `<t:${unixTime}:R>`,
+
+      inline: true,
+    },
+
+    {
+      name:
+        `${EMOJI.online} Data Source`,
+
+      value:
+        "[Growtopia Official Website](https://www.growtopiagame.com/)",
+
+      inline: false,
+    },
+  ];
 
   return {
-    username: "Growtopia Monitor",
+    username:
+      "Growtopia Online Monitoring",
 
-    avatar_url: LOGO_URL,
+    /*
+     * Ini tetap menjadi foto profil
+     * webhook, bukan gambar WOTD.
+     */
+    avatar_url:
+      LOGO_URL,
 
     allowed_mentions: {
       parse: [],
@@ -345,118 +851,71 @@ function createDiscordPayload(
     embeds: [
       {
         author: {
-          name: "Growtopia Live Monitoring",
-          url: WEBSITE_URL,
-          icon_url: LOGO_URL,
+          name:
+            "Growtopia Online Monitoring",
+
+          url:
+            WEBSITE_URL,
+
+          icon_url:
+            LOGO_URL,
         },
 
         title:
           `${statusEmoji} ${statusText}`,
 
-        url: WEBSITE_URL,
+        url:
+          WEBSITE_URL,
 
-        description: status.online
-          ? [
-              "> Real-time Growtopia server monitoring.",
-              "",
-              `${EMOJI.player} **CURRENT ONLINE PLAYERS**`,
-              `# ${formatNumber(currentCount)}`,
-            ].join("\n")
-          : [
-              "> Real-time Growtopia server monitoring.",
-              "",
-              `${EMOJI.offline} **Growtopia server sedang offline atau tidak tersedia.**`,
-            ].join("\n"),
+        description:
+          growtopia.online
+            ? [
+                "> Real-time Growtopia server monitoring.",
+                "",
+                `${EMOJI.player} **CURRENT ONLINE PLAYERS**`,
+                `# ${formatNumber(
+                  currentCount
+                )}`,
+              ].join("\n")
+            : [
+                "> Real-time Growtopia server monitoring.",
+                "",
+                `${EMOJI.offline} **Growtopia server sedang offline atau tidak tersedia.**`,
+              ].join("\n"),
 
+        /*
+         * Logo kecil di kanan atas.
+         */
         thumbnail: {
-          url: LOGO_URL,
+          url:
+            LOGO_URL,
         },
 
-        color: status.online
-          ? 0x57f287
-          : 0xed4245,
+        /*
+         * Gambar besar ini adalah
+         * World of the Day dari /detail.
+         */
+        image:
+          growtopia.wotdImageUrl
+            ? {
+                url:
+                  growtopia.wotdImageUrl,
+              }
+            : undefined,
 
-        fields: [
-          {
-            name:
-              `${EMOJI.player} Online Players`,
+        color:
+          growtopia.online
+            ? 0x57f287
+            : 0xed4245,
 
-            value: status.online
-              ? `\`\`\`${formatNumber(
-                  currentCount
-                )}\`\`\``
-              : "```OFFLINE```",
-
-            inline: true,
-          },
-
-          {
-            name:
-              `${EMOJI.stats} Previous Check`,
-
-            value: previousCount === null
-              ? "```NO DATA```"
-              : `\`\`\`${formatNumber(
-                  previousCount
-                )}\`\`\``,
-
-            inline: true,
-          },
-
-          {
-            name:
-              `${EMOJI.stats} Player Change`,
-
-            value: changeValue,
-
-            inline: true,
-          },
-
-          {
-            name:
-              `${EMOJI.stats} Player Trend`,
-
-            value: trendValue,
-
-            inline: true,
-          },
-
-          {
-            name:
-              `${EMOJI.clock} Refresh Rate`,
-
-            value:
-              "**Every 1 Minute**",
-
-            inline: true,
-          },
-
-          {
-            name:
-              `${EMOJI.clock} Last Updated`,
-
-            value:
-              `<t:${unixTime}:R>`,
-
-            inline: true,
-          },
-
-          {
-            name:
-              `${EMOJI.online} Data Source`,
-
-            value:
-              "[Growtopia Official Website](https://www.growtopiagame.com/)",
-
-            inline: false,
-          },
-        ],
+        fields,
 
         footer: {
           text:
-            "Edgar • Growtopia Monitoring System • V6",
+            "Edgar • Growtopia Online Monitoring",
 
-          icon_url: LOGO_URL,
+          icon_url:
+            LOGO_URL,
         },
 
         timestamp:
@@ -480,7 +939,8 @@ async function sendWebhookMessage(
           "application/json",
       },
 
-      body: JSON.stringify(payload),
+      body:
+        JSON.stringify(payload),
     }
   );
 
@@ -501,8 +961,10 @@ async function editWebhookMessage(
   messageId,
   payload
 ) {
-  // Username dan foto profil webhook hanya dapat ditentukan
-  // ketika pesan baru dikirim, bukan ketika pesan diedit.
+  /*
+   * Username dan avatar_url tidak
+   * digunakan ketika mengedit pesan.
+   */
   const {
     username,
     avatar_url,
@@ -521,13 +983,16 @@ async function editWebhookMessage(
           "application/json",
       },
 
-      body: JSON.stringify(
-        editablePayload
-      ),
+      body:
+        JSON.stringify(
+          editablePayload
+        ),
     }
   );
 
-  if (response.status === 404) {
+  if (
+    response.status === 404
+  ) {
     return false;
   }
 
@@ -549,7 +1014,9 @@ function formatNumber(value) {
   ).format(value);
 }
 
-function formatPercentage(value) {
+function formatPercentage(
+  value
+) {
   if (
     value === null ||
     value === undefined ||
@@ -572,7 +1039,11 @@ function jsonResponse(
   status = 200
 ) {
   return new Response(
-    JSON.stringify(data, null, 2),
+    JSON.stringify(
+      data,
+      null,
+      2
+    ),
     {
       status,
 
@@ -580,7 +1051,8 @@ function jsonResponse(
         "Content-Type":
           "application/json; charset=UTF-8",
 
-        "Cache-Control": "no-store",
+        "Cache-Control":
+          "no-store",
       },
     }
   );
