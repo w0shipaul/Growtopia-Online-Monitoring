@@ -1,0 +1,27 @@
+[
+  {
+    "id": "server-edgar",
+    "name": "Server Edgar",
+    "url": "https://discord.com/api/webhooks/WEBHOOK_ID/WEBHOOK_TOKEN",
+    "username": "Growtopia Online Monitoring",
+    "logoUrl": "https://cdn.phototourl.com/free/2026-07-22-47dec906-4283-4af1-b922-7872f834771f.png",
+    "footer": "Edgar • Growtopia Online Monitoring"
+  },
+  {
+    "id": "server-kedua",
+    "name": "Server Kedua",
+    "url": "https://discord.com/api/webhooks/WEBHOOK_ID_2/WEBHOOK_TOKEN_2",
+    "username": "Growtopia Online Monitoring",
+    "footer": "Edgar • Growtopia Online Monitoring",
+    "emojis": {
+      "online": "🟢",
+      "offline": "🔴",
+      "player": "👥",
+      "stats": "📊",
+      "clock": "⏰",
+      "plus": "📈",
+      "minus": "📉",
+      "world": "🌍"
+    }
+  }
+]
